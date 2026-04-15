@@ -39,30 +39,6 @@ class Matrix_csr{
     int NbRow() const {return nbrow;}
     int NbCol() const {return nbcol;}
 
-    // // This uses the same shortcuts found in the default Matrix constructor to quickly build a 1d Poisson.
-    // Matrix_csr(const int& nr = 0, const int& nc = 0) {
-    //   nbrow = nr;
-    //   nbcol = nc;
-    //   int elements_count = 0;
-    //   row_index.push_back(elements_count);
-    //   for (int i = 0; i < nc; ++i) {
-    //     if (i - 1 >= 0) {
-    //       values.push_back(-1);
-    //       col_index.push_back(i-1);
-    //       elements_count++;
-    //     }
-    //     values.push_back(2);
-    //     col_index.push_back(i);
-    //     elements_count++;
-    //     if (i + 1 < nc) {
-    //       values.push_back(-1);
-    //       col_index.push_back(i+1);
-    //       elements_count++;
-    //     }
-    //     row_index.push_back(elements_count);
-    //   }
-    // };
-
     // Special constructor that produces a slice of a full csr matrix from rows rstart to rend.
     // total denotes number of ranks active in this MPI run. rank is self explanatory.
     // Running this without a specified rank and total values generate a full csr matrix.
@@ -97,24 +73,6 @@ class Matrix_csr{
         row_index.push_back(elements_count);
       }
     };
-
-    // // matrix-vector product with vector xi. This operator gets used at 3 places in the PCG loop.
-    // std::vector<double> operator*(const std::vector<double>& xi) const {
-    //   std::vector<double> b(row_index.size()-1, 0.); // init vector with all 0s
-    //   // Using row_index, identify the range of each row in col_index and values.
-    //   for (size_t row = 1; row < row_index.size(); row++) {
-    //     // Subtract row_index[0] b/c partial CSR matrices have absolute row index values
-    //     // while iterating to the right values require relative row index values
-    //     int start = row_index[row-1] - row_index[0];
-    //     int end = row_index[row] - row_index[0];
-    //     for (int i = start; i < end; i++) { // iterate thru each nonzero element in a given row
-    //       int column = col_index[i];
-    //       int value = values[i]; 
-    //       b[row-1] += value * xi[column]; // for each row: multiply every nonzero element by corresponding val in xi
-    //     }
-    //   }
-    //   return b;
-    // }
 
     // https://mathinsight.org/matrix_vector_multiplication
     // Self reminder: Each row in A multiplied by the entire vector xi forms one entry in the output vector b
@@ -325,6 +283,8 @@ CG_Solver_csr::CG_Solver_csr(const int& n, const int& N) {
   }
 }
 
+// Old CG solve function. Kept as reference.
+
 /* The preconditioned conjugate gradient method solving Ax = b with tolerance tol.
  * This is the function being evalauted for performance.
  * Note that the starter code only works for 1 rank and it is not efficient.
@@ -396,36 +356,7 @@ void CG_Solver_csr::solve(const std::vector<double>& b, std::vector<double>& x, 
   int size;
   MPI_Comm_size(MPI_COMM_WORLD, &size); // Get the number of processes
   int rank;
-  MPI_Comm_rank(MPI_COMM_WORLD, &rank); // Get the rank of the process
-
-  
-  // // get the local diagonal block of A
-  // std::vector<Eigen::Triplet<double>> coefficients;
-
-  // // Since each process has only a partial slice of the overall csr matrix
-  // // Each process creates a partial coefficients vector
-  // // I need every process to have a full coefficients vector
-  // // I can't allgather eigen triplets using default MPI datatypes
-  // // and I don't feel like making a custom datatype.
-  // // I am just going to build 
-  // std::vector<double> coeffs_local;
-  // Matrix_csr temp_full_csr = Matrix_csr(Acsr.NbRow(), Acsr.NbCol(), 0, 1);
-  // int total_rows = temp_full_csr.row_index.size();
-  // for (int i = 1; i < total_rows; i++) {
-  //   int start = temp_full_csr.row_index[i-1] - temp_full_csr.row_index[0];
-  //   int end = temp_full_csr.row_index[i] - temp_full_csr.row_index[0];
-  //   for (int j = start; j < end; j++) {//iterate through each row, insert values and x-y coords to coefficients
-  //     int col = temp_full_csr.col_index[j];
-  //     int value = temp_full_csr.values[j];
-  //     // offset: how many rows exist before this csr slice; used to compute true row indices for a given point
-  //     //int offset = (Acsr.NbRow()/size) * rank;
-  //     // coeffs_local.push_back(i-1+offset);
-  //     // coeffs_local.push_back(col);
-  //     // coeffs_local.push_back(value);
-  //     coefficients.push_back(Eigen::Triplet<double>(i-1, col, value));
-  //   }
-  // }
-  
+  MPI_Comm_rank(MPI_COMM_WORLD, &rank); // Get the rank of the process  
   
   int n = Acsr.NbRow();
   
@@ -449,21 +380,16 @@ void CG_Solver_csr::solve(const std::vector<double>& b, std::vector<double>& x, 
   // Better to do matmul once than 3 times
   // Note that A is called Acsr here hence different var names.
   // I do not expect this to affect error because Acsr * p is the same when precomputed or done on the spot.
-  int master_is_done = 0;
+  //int master_is_done = 0;
   while(res >= epsilon) {
-    // if (master_is_done) {
-    //   break;
-    // }
-    if (rank == MASTER) {
-      std::cout << "Rank 0 doing an iteration" << std::endl;
-    }
+
     std::vector<double> Acsrp = Acsr * p;
     double pAcsrp = (p, Acsrp);
-    std::cout << "Rank 0 init Acsrp" << std::endl;
+    //std::cout << "Rank 0 init Acsrp" << std::endl;
     alpha = (r, z) / pAcsrp;
     x += (+alpha) * p; 
     r += (-alpha) * Acsrp;
-    std::cout << "Rank 0 updating residuals" << std::endl;
+    //std::cout << "Rank 0 updating residuals" << std::endl;
     z = prec(P, r);
     beta = (r, z) / (alpha * pAcsrp); 
     p = z + beta * p;    
@@ -476,15 +402,12 @@ void CG_Solver_csr::solve(const std::vector<double>& b, std::vector<double>& x, 
       std::cout << "residual:  " << res << "\n";
     //}
   }
-  master_is_done = 1;
-  if (rank == MASTER) {
-    std::cout << "Rank 0 done" << std::endl;
-    MPI_Bcast(&master_is_done, 1, MPI_INT, MASTER, MPI_COMM_WORLD);
-  }
+
 }
 
 /*
 // A snippet of code for a previous attempt at building a full eigen coefficients vector.
+// Left here for reference.
 // The following approach has each process build a local list of (j, k, value) data points
 // then allgather so all procs have all data points, then insert into coefficients
 
